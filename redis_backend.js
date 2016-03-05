@@ -66,6 +66,7 @@ module.exports = function (coll_name, backend_options) {
         if (err) return cb(err);
         var ret = JSON.parse(raw);
 
+        if (opts.index === false) return cb(null, ret);
         if (typeof opts.score == 'number') {
           withScore(opts.score);
         }
@@ -116,7 +117,7 @@ module.exports = function (coll_name, backend_options) {
     select: function (opts, cb) {
       var self = this
         , start = opts.offset || 0
-        , stop = opts.limit ? offset + opts.limit - 1 : -1
+        , stop = opts.limit ? start + opts.limit - 1 : -1
 
       client[opts.reverse ? 'ZREVRANGE' : 'ZRANGE'](idx_key, start, stop, function (err, chunk) {
         if (err) return cb(err);
