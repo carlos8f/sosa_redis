@@ -9,7 +9,9 @@ function ran (method) {
 }
 
 var redis_client = require('redis').createClient();
-var db = sosa_redis({client: redis_client, prefix: 'test_' + Math.random().toString(16)});
+var db = sosa_redis({
+  client: redis_client, prefix: 'test_' + Math.random().toString(16).slice(2)
+});
 
 var humans = db('humans', {
   load: function (obj, opts, cb) {
@@ -35,41 +37,41 @@ var humans = db('humans', {
   }
 });
 
-humans.load('carlos', function (err, human) {
+humans.load('carlos : /', function (err, human) {
   assert.ifError(err);
   assert.strictEqual(human, null);
   humans.select(function (err, results) {
     assert.ifError(err);
     assert.deepEqual(results, []);
-    var carlos = {name: 'los'};
-    humans.save('carlos', carlos, function (err, human) {
+    var carlos = {id: 'carlos : /', name: 'los'};
+    humans.save(carlos, function (err, human) {
       assert.ifError(err);
       assert.deepEqual(carlos, human);
       humans.select(function (err, results) {
         assert.ifError(err);
         assert.deepEqual(results, [carlos]);
         assert.deepEqual(state, {save: 1, afterSave: 1, load: 1});
-        var brian = {name: 'brian'};
-        humans.save('brian', brian, function (err, human) {
+        var brian = {id: 'brian : / link', name: 'brian'};
+        humans.save(brian, function (err, human) {
           assert.ifError(err);
           assert.deepEqual(brian, human);
           humans.select(function (err, results) {
             assert.ifError(err);
             assert.deepEqual(results, [carlos, brian]);
             assert.deepEqual(state, {save: 2, afterSave: 2, load: 3});
-            var nick = {name: 'nick'};
-            humans.save('nick', nick, function (err, human) {
+            var nick = {id: 'nick', name: 'nick'};
+            humans.save(nick, function (err, human) {
               assert.ifError(err);
               assert.deepEqual(nick, human);
               humans.select(function (err, results) {
                 assert.ifError(err);
                 assert.deepEqual(results, [carlos, brian, nick]);
                 assert.deepEqual(state, {save: 3, afterSave: 3, load: 6});
-                humans.destroy('brian', function (err, human) {
+                humans.destroy('brian : / link', function (err, human) {
                   assert.ifError(err);
                   assert.deepEqual(brian, human);
                   assert.deepEqual(state, {save: 3, afterSave: 3, load: 6, destroy: 1});
-                  humans.load('brian', function (err, human) {
+                  humans.load('brian : / link', function (err, human) {
                     assert.ifError(err);
                     assert.strictEqual(human, null);
                     humans.select(function (err, results) {
@@ -81,7 +83,7 @@ humans.load('carlos', function (err, human) {
                         assert.ifError(err);
                         assert.deepEqual(results, []);
                         assert.deepEqual(state, {save: 3, afterSave: 3, load: 8, destroy: 1});
-                        humans.in('cool_club').save('carlos', {name: 'los'}, function (err, human) {
+                        humans.in('cool_club').save({id: 'carlos : /', name: 'los'}, function (err, human) {
                           assert.ifError(err);
                           assert.deepEqual(carlos, human);
                           humans.in('cool_club').select(function (err, results) {

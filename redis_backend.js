@@ -4,10 +4,13 @@ module.exports = function (coll_name, backend_options) {
   backend_options || (backend_options = {});
 
   if (!backend_options.client) throw new Error('must pass a node_redis client with backend_options.client');
+  if (typeof backend_options.hashKeys === 'undefined') backend_options.hashKeys = false;
   var client = backend_options.client;
 
-  function hash (obj) {
-    return crypto.createHash('sha1').update(JSON.stringify(obj)).digest('hex');
+  function hash (id) {
+    return backend_options.hashKeys
+      ? crypto.createHash('sha1').update(JSON.stringify(id)).digest('hex')
+      : Array.isArray(id) ? id.map(function (part) { return encodeURIComponent(part) }).join('/') : encodeURIComponent(id);
   }
 
   var coll_path = coll_name;
@@ -17,16 +20,22 @@ module.exports = function (coll_name, backend_options) {
   if (backend_options.prefix) coll_path = backend_options.prefix + ':' + coll_path;
 
   function toKey (key_path, hashed_id) {
-    var key = coll_path + ':' + key_path;
-    if (typeof hashed_id !== 'undefined') key += ':' + hashed_id;
+    var key = coll_path + '/' + key_path;
+    if (typeof hashed_id !== 'undefined') key += '/' + hashed_id;
     return key;
   }
 
-  var idx_key = toKey('idx');
+  var idx_key = toKey('keys');
   var score_key = toKey('score');
 
   return {
-    _loadHash: function (hashed_id, opts, cb) {
+    load: function (id, opts, cb) {
+      try {
+        var hashed_id = hash(id);
+      }
+      catch (e) {
+        return cb(e);
+      }
       var value_key = toKey('value', hashed_id);
       client.GET(value_key, function (err, raw) {
         if (err) return cb(err);
@@ -42,19 +51,14 @@ module.exports = function (coll_name, backend_options) {
         else cb(null, null);
       });
     },
-    load: function (id, opts, cb) {
-      var hashed_id = hash(id);
-      return this._loadHash(hashed_id, opts, cb);
-    },
     save: function (id, obj, opts, cb) {
       try {
         var raw = JSON.stringify(obj);
+        var hashed_id = hash(id);
       }
       catch (e) {
         return cb(e);
       }
-
-      var hashed_id = hash(id);
       var value_key = toKey('value', hashed_id);
 
       if (opts.ttl) {
@@ -71,7 +75,7 @@ module.exports = function (coll_name, backend_options) {
           withScore(opts.score);
         }
         else {
-          client.ZSCORE(idx_key, hashed_id, function (err, score) {
+          client.ZSCORE(idx_key, id, function (err, score) {
             if (err) return cb(err);
             if (score) return cb(null, ret);
             else {
@@ -84,7 +88,7 @@ module.exports = function (coll_name, backend_options) {
         }
 
         function withScore (score) {
-          client.ZADD(idx_key, score, hashed_id, function (err) {
+          client.ZADD(idx_key, score, id, function (err) {
             if (err) return cb(err);
             cb(null, ret);
           });
@@ -92,14 +96,19 @@ module.exports = function (coll_name, backend_options) {
       }
     },
     destroy: function (id, opts, cb) {
-      var hashed_id = hash(id);
+      try {
+        var hashed_id = hash(id);
+      }
+      catch (e) {
+        return cb(e);
+      }
       var value_key = toKey('value', hashed_id);
 
       this.load(id, {}, function (err, obj) {
         if (err) return cb(err);
         if (obj === null) {
           // due to ttl, obj might still be a member of idx. cleanup.
-          client.ZREM(idx_key, hashed_id, function (err) {
+          client.ZREM(idx_key, id, function (err) {
             if (err) return cb(err);
             cb(null, null);
           });
@@ -107,7 +116,7 @@ module.exports = function (coll_name, backend_options) {
         }
         client.MULTI()
           .DEL(value_key)
-          .ZREM(idx_key, hashed_id)
+          .ZREM(idx_key, id)
           .EXEC(function (err) {
             if (err) return cb(err);
             cb(null, obj);
@@ -123,8 +132,8 @@ module.exports = function (coll_name, backend_options) {
         if (err) return cb(err);
         var latch = chunk.length, errored = false;
         if (!latch) return cb(null, chunk);
-        chunk.forEach(function (hashed_id, idx) {
-          self._loadHash(hashed_id, opts, function (err, obj) {
+        chunk.forEach(function (id, idx) {
+          self.load(id, opts, function (err, obj) {
             if (errored) return;
             if (err) {
               errored = true;
@@ -133,7 +142,7 @@ module.exports = function (coll_name, backend_options) {
             if (obj === null) {
               // due to ttl, obj might still be a member of idx. cleanup.
               setImmediate(function () {
-                client.ZREM(idx_key, hashed_id);
+                client.ZREM(idx_key, id);
               });
             }
             chunk[idx] = obj;
